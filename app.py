@@ -7,14 +7,8 @@ import os
 import threading
 
 # instantiate Slack client
-rtm = RTMClient(token=os.environ["SLACK_BOT_TOKEN"])
-# starterbot's user ID in Slack: value is assigned after the bot starts up
-#starterbot_id = None
-
-# constants
-RTM_READ_DELAY = 1 # 1 second delay between reading from RTM
-EXAMPLE_COMMAND = "status"
-MENTION_REGEX = "^<@(|[WU].+?)>(.*)"
+if os.environ["SLACK_BOT_TOKEN"]:
+	rtm = RTMClient(token=os.environ["SLACK_BOT_TOKEN"])
 
 status = {"Hotend": 0, "Bed": 0, "File": "", "Progress": 0, "Remaining": 0, "State": "idle"}
 
@@ -27,29 +21,10 @@ def handle(client: RTMClient, event: dict):
 			text = str(status)
 		)
 def rtm_start():
-	rtm.start()
-
-def parse_bot_commands(slack_events):
-	for event in slack_events:
-		if event["type"] == "message" and not "subtype" in event:
-			user_id, message = parse_direct_mention(event["text"])
-			if user_id == starterbot_id:
-				return message, event["channel"]
-	return None, None
-
-def parse_direct_mention(message_text):
-	matches = re.search(MENTION_REGEX, message_text)
-	return (matches.group(1), matches.group(2).strip()) if matches else (None, None)
-
-def handle_command(command, channel):
-	response = "Not sure what you mean. Try *{}*.".format(EXAMPLE_COMMAND)
-	if command.startswith(EXAMPLE_COMMAND):
-		response = str(status)
-	slack_client.api_call("chat.postMessage", channel=channel, text=response)
-
+	if rtm:
+		rtm.start()
 
 skip_list = ("echo:busy", "LCD status", "SILENT MODE", "tmc2130 blabl", "0 step")
-#status = {"Hotend": 0, "Bed": 0, "File": "", "Progress": 0, "Remaining": 0, "State": "idle"}
 
 
 def process_line(l):
@@ -106,9 +81,6 @@ t1 = threading.Thread(name='slack-daemon', target=rtm_start)
 t1.setDaemon(True)
 t1.start()
 
-#if slack_client.connect(with_team_state=False):#
-#	print("Starter Bot connected and running!")
-#	starterbot_id = slack_client.api_call("auth.test")["user_id"]
 ser = serial.Serial('/dev/ttyACM0', 115200, timeout=10, )
 print(ser.name)
 last_print = datetime.datetime.now()
