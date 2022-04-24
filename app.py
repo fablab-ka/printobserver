@@ -12,6 +12,7 @@ printers = []
 # instantiate Slack client
 rtm = None
 if "SLACK_BOT_TOKEN" in os.environ:
+	print("Starting Slackbot")
 	rtm = RTMClient(token=os.environ["SLACK_BOT_TOKEN"])
 
 if rtm:
@@ -23,9 +24,9 @@ if rtm:
 				reply += p.get_status() + "\r\n"
 
 			client.web_client.chat_postMessage(
-				channel = event['channel'],
+				channel=event['channel'],
 				#thread_ts = event['ts'],
-				text = str(status)
+				text=str(reply)
 			)
 
 	def rtm_start():
