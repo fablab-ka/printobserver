@@ -1,0 +1,2 @@
+pyserial
+slack_sdk

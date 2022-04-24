@@ -1,104 +1,52 @@
-import serial
+import time
 import re
+from printer import Printer
 import datetime
 #from slack import RTMClient
 from slack_sdk.rtm_v2 import RTMClient
 import os
 import threading
 
+printers = []
+
 # instantiate Slack client
-if os.environ["SLACK_BOT_TOKEN"]:
+rtm = None
+if "SLACK_BOT_TOKEN" in os.environ:
 	rtm = RTMClient(token=os.environ["SLACK_BOT_TOKEN"])
 
-status = {"Hotend": 0, "Bed": 0, "File": "", "Progress": 0, "Remaining": 0, "State": "idle"}
+if rtm:
+	@rtm.on("message")
+	def handle(client: RTMClient, event: dict):
+		if 'druckerstatus' in event['text']:
+			reply = ""
+			for p in printers:
+				reply += p.get_status() + "\r\n"
 
-@rtm.on("message")
-def handle(client: RTMClient, event: dict):
-	if 'druckerstatus' in event['text']:
-		client.web_client.chat_postMessage(
-			channel = event['channel'],
-			#thread_ts = event['ts'],
-			text = str(status)
-		)
-def rtm_start():
-	if rtm:
-		rtm.start()
+			client.web_client.chat_postMessage(
+				channel = event['channel'],
+				#thread_ts = event['ts'],
+				text = str(status)
+			)
 
-skip_list = ("echo:busy", "LCD status", "SILENT MODE", "tmc2130 blabl", "0 step")
+	def rtm_start():
+		if rtm:
+			rtm.start()
+	t1 = threading.Thread(name='slack-daemon', target=rtm_start)
+	t1.setDaemon(True)
+	t1.start()
+
+printers.append(Printer("Prusa 1", "/dev/serial/by-id/usb-Prusa_Research__prusa3d.com__Original_Prusa_i3_MK3_CZPX3119X004XK40396-if00"))
+printers.append(Printer("Prusa 2", "/dev/serial/by-id/usb-Prusa_Research__prusa3d.com__Original_Prusa_i3_MK3_CZPX0219X004XK03946-if00"))
+printers.append(Printer("Prusa 3", "/dev/serial/by-id/usb-Prusa_Research__prusa3d.com__Original_Prusa_i3_MK3_CZPX1719X004XK22415-if00"))
 
 
-def process_line(l):
-	if l.startswith(skip_list) or l == "ok":
-		return
-	temp = re.match("T:(\d+\.\d+) E:(\d+) B:(\d+\.\d+)", l)
-	if temp:
-		status["Hotend"] = temp[1]
-		status["Bed"] = temp[3]
-		return
-	else:
-		temp = re.match("T:(\d+\.\d) .*", l)
-		if temp:
-			status["Hotend"] = temp[1]
-			return
-	temp = re.match("ok T:(\d+.\d+) .* B:(\d+.\d+) .*", l)
-	if temp:
-		status["Hotend"] = temp[1]
-		status["Bed"] = temp[2]
-		return
-	prog = re.match("(NORMAL|T) MODE: Percent done: (.+); print time remaining in mins: (.+); Change.*", l)
-	if prog:
-		status["Progress"] = prog[2]
-		status["Remaining"] = prog[3]
-		if prog[2] == "100" or prog[2] == "-1":
-			status["State"] = "idle"
-			status["File"] = ""
-		#status["State"] = "printing"
-		return
-	file = re.match("File opened: (.*) Size: (\d+)", l)
-	if file:
-		status["File"] = file[1]
-		status["State"] = "printing"
-		return
-	if l.startswith("// action:paused"):
-		status["State"] = "paused"
-		return
-	if l.startswith("// action:resumed"):
-		status["State"] = "printing"
-		return
-	if l.startswith("Done printing file"):
-		status["State"] = "idle"
-		return
-	if l.startswith("echo:enqueing \"CRASH_DETECTED"):
-		status["State"] = "crash"
-		return
-	if l.startswith("echo:enqueing \"CRASH_RECOVER"):
-		status["State"] = "printing"
-		return
-
-	print(l)
-
-t1 = threading.Thread(name='slack-daemon', target=rtm_start)
-t1.setDaemon(True)
-t1.start()
-
-ser = serial.Serial('/dev/ttyACM0', 115200, timeout=10, )
-print(ser.name)
-last_print = datetime.datetime.now()
 last_check = datetime.datetime.now()
 
 while True:
-	if ser.in_waiting > 0:
-		line = ser.readline().decode("utf-8").strip()
-		process_line(line)
-	now = datetime.datetime.now()
-	if (now - last_print).seconds > 30:
-		ser.write(b"M73\r\n")
-		process_line(ser.readline().decode("utf-8").strip())
-		ser.write(b"M105\r\n")
-		process_line(ser.readline().decode("utf-8").strip())
-		print(status)
-		last_print = now
-#	command, channel = parse_bot_commands(slack_client.rtm_read())
-#	if command:
-#		handle_command(command, channel)
-ser.close()
+	for p in printers:
+		p.process()
+	if (datetime.datetime.now() - last_check).seconds > 10:
+		last_check = datetime.datetime.now()
+		for p in printers:
+			print(p.get_status())
+	time.sleep(1)
